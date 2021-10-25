@@ -1,0 +1,14 @@
+
+/upload
+*.DS_Store
+sites/s1/bitrix
+sites/s1/robots.txt
+/bitrix
+bitrix/backup/
+bitrix/cache/
+bitrix/managed_cache/
+bitrix/tmp
+*.xml
+upload
+.DS_Store
+.idea
