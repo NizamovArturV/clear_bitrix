@@ -96,7 +96,7 @@ class Main
      */
     public function debug($data, $die = false) {
         echo '<pre>';
-        print_r($data);
+        var_dump($data);
         echo '</pre>';
 
         if($die) {

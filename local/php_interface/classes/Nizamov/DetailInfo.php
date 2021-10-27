@@ -4,7 +4,7 @@ namespace Nizamov;
 
 class DetailInfo {
 
-    protected $objectMain;
+    protected Main $objectMain;
     public function __construct()
     {
         \CModule::IncludeModule('iblock');
