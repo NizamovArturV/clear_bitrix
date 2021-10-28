@@ -7,9 +7,8 @@ class DetailInfo {
     protected Main $objectMain;
     public function __construct()
     {
-        \CModule::IncludeModule('iblock');
-        \CModule::IncludeModule('highloadblock');
         $this->objectMain = new Main();
+        $this->objectMain->includeModules(['iblock', 'highloadblock']);
     }
 
     /**

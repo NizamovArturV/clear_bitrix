@@ -11,10 +11,9 @@ class Payment
     public string $moduleID = 'sberbankstart'; //Изменить на ID своего модуля
     public bool $test;
     public Helper $sberHelper;
-    private $login;
-    private $password;
-    private $token;
-    private $testToken = 'YRF3C5RFICWISEWFR6GJ';
+    private string $login;
+    private string $password;
+    private string $token;
 
     public function __construct()
     {
@@ -40,11 +39,11 @@ class Payment
     /**
      * Регистирует новый заказ в Сбербанке по цене
      *
-     * @param $amount
+     * @param string $amount
      * @param array $jsonParams
      * @return mixed
      */
-    public function registerSberbank($amount, $jsonParams = []): array
+    public function registerSberbank(string $amount, array $jsonParams = []): array
     {
         $result = ['status' => 'error', 'error' => ''];
 
@@ -86,7 +85,11 @@ class Payment
         return $result;
     }
 
-    private function getAuthorizeParams()
+    /**
+     * Получает параметры для авторизации в сбербанке
+     * @return array|string
+     */
+    private function getAuthorizeParams(): array
     {
         $params = [];
         if ($this->token) {
@@ -101,13 +104,13 @@ class Payment
     }
 
     /**
-     * Получает информацию о статусе заказа сбербанка
+     * Проверяет, оплачен ли заказ в сбербанке
      *
-     * @param $orderID
+     * @param string $orderID
      *
-     * @return string
+     * @return bool
      */
-    public function getStatusSberbank($orderID)
+    public function isOrderPaid(string $orderID): bool
     {
         $authParams = $this->getAuthorizeParams();
 
@@ -134,12 +137,12 @@ class Payment
 
     /**
      * Гет запрос с параметрами
-     * @param $url
-     * @param $params
+     * @param string $url
+     * @param array $params
      * @param array $jsonParams
-     * @return mixed
+     * @return array
      */
-    protected function sendRequest($url, $params, $jsonParams = [])
+    protected function sendRequest(string $url, array $params, array $jsonParams = []): array
     {
 
         $urlFinal = $url . '?' . http_build_query($params);

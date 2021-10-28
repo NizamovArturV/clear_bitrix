@@ -4,40 +4,40 @@ if (!defined("B_PROLOG_INCLUDED") || B_PROLOG_INCLUDED !== true) {
     die();
 }
 
+use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Bitrix\Main\LoaderException;
 use Bitrix\Main\Entity;
+use Nizamov\Main;
 
 class Payment extends CBitrixComponent
 {
 
     public $user;
-    public \Nizamov\Main $mainClassObject;
+    public Main $mainClassObject;
     public \Bitrix\SberBankStart\Payment $sberClassObject;
-    public $iblockID;
+    private int $iblockID;
+    public $request;
 
     public function __construct($component = null)
     {
         parent::__construct($component);
-        CModule::IncludeModule('iblock');
-        CModule::IncludeModule('highloadblock');
-        CModule::IncludeModule('sberbankstart');
         global $USER;
         $this->user = $USER;
-        $this->sberClassObject = new Bitrix\SberBankStart\Payment();
         $this->mainClassObject = new Nizamov\Main();
-
+        $this->mainClassObject->includeModules(['iblock', 'highloadblock', 'sberbankstart']);
+        $this->sberClassObject = new \Bitrix\SberBankStart\Payment();
+        $this->request = Application::getInstance()->getContext()->getRequest();
     }
 
     /**
      * Создает новую заявку на оплату, возвращает id нового элемента
-     *
-     * @param $propertyValues
-     *
-     * @return mixed
+     * @param array $propertyValues
+     * @return array
      */
-    public function createNewPayment($propertyValues)
+    private function createNewPayment(array $propertyValues): array
     {
+        $result = ['ID' => 0, 'error' => ''];
         $arFields = [
             "ACTIVE" => "Y",
             "IBLOCK_ID" => $this->iblockID,
@@ -46,44 +46,50 @@ class Payment extends CBitrixComponent
         ];
 
         $oElement = new CIBlockElement();
-        return $oElement->Add($arFields, false, false, true);
+
+        if($newElementID = $oElement->Add($arFields, false, false, true)) {
+            $result['ID'] = (int)$newElementID;
+        } else {
+            $result['error'] = $oElement->LAST_ERROR;
+        }
+
+        return $result;
     }
 
     /**
-     * Устанавливает статус оплаты в заявку в инфоблоке
-     * @param $idSberPayment
-     *
+     * Получает сообщение об успешности оплаты заказа
+     * @param string $idSberPayment
      * @return string
      */
-    public function setStatusPayment($idSberPayment)
+    private function getMessageStatus(string $idSberPayment) :string
     {
-
+        $success = false;
         $elementID = $this->getElementIDBySberId($this->iblockID, $idSberPayment);
 
-        $statusState = $this->sberClassObject->getStatusSberbank($idSberPayment);
+        if ($elementID > 0) {
+            $statusState = $this->sberClassObject->isOrderPaid($idSberPayment);
 
-        if ($statusState) {
-            $status = $this->arParams['STATUS_PAY_FAIL'];
-        } else {
-            $status = $this->arParams['STATUS_PAY_SUCCESS'];
+            if ($statusState) {
+                $status = $this->arParams['STATUS_PAY_SUCCESS'];
+                $success = true;
+                CIBlockElement::SetPropertyValuesEx($elementID, $this->iblockID, array($this->arParams['STATUS_PROPERTY_CODE'] => $status));
+            }
         }
 
-        CIBlockElement::SetPropertyValuesEx($elementID, $this->iblockID, array($this->arParams['STATUS_PROPERTY_CODE'] => $status));
-
-        return $statusState;
+        return $success ? $this->arParams['MESSAGE_SUCCESS'] : $this->arParams['MESSAGE_FAIL'];
     }
+
+
 
     /**
      * Получает ID элемента по номеру зазака в Сбербанке
-     *
-     * @param $iblockId
-     * @param $idSberPayment
-     *
-     * @return false|mixed
+     * @param int $iblockId
+     * @param string $idSberPayment
+     * @return int
      */
-    public function getElementIDBySberId($iblockId, $idSberPayment): bool
+    private function getElementIDBySberId(int $iblockId, string $idSberPayment): int
     {
-        $result = false;
+        $result = 0;
         $arSelect = ["ID", "NAME", 'IBLOCK_ID', 'PROPERTIES_*'];
         $arFilter = [
             "IBLOCK_ID" => $iblockId,
@@ -91,10 +97,12 @@ class Payment extends CBitrixComponent
             "ACTIVE" => "Y",
             '=PROPERTY_' . $this->arParams['ORDER_ID_PROPERTY_CODE'] => $idSberPayment
         ];
-        $res = CIBlockElement::GetList([], $arFilter, false, ["nPageSize" => 1], $arSelect);
-        while ($ob = $res->GetNextElement()) {
-            $arFields = $ob->GetFields();
-            $result = $arFields['ID'];
+
+        $arrElements = $this->mainClassObject->getElements($iblockId, $arFilter, $arSelect, ["nPageSize" => 1]);
+        foreach ($arrElements as $arrElement) {
+            if ($arrElement['PROPERTIES'][$this->arParams['ORDER_ID_PROPERTY_CODE']]['VALUE'] === $idSberPayment) {
+                $result = (int)$arrElement['ID'];
+            }
         }
 
         return $result;
@@ -102,98 +110,102 @@ class Payment extends CBitrixComponent
 
 
     /**
-     * Вызывает все нужные методы для создания новой оплаты
-     * @return false|mixed
+     * Вызывает все нужные методы для создания новой оплаты, возвращает массив с url редиректа и ошибкой
+     * @return string[]
      */
-    public function createAction()
+    private function createAction(): array
     {
-        $result = '';
-        $arParameters = $_POST['PROPERTY'];
+        $result = ['url' => '', 'error' => ''];
+        $arParameters = $this->request->getPost('PROPERTY');
+
         $arParameters[$this->arParams['STATUS_PROPERTY_CODE']] = $this->arParams['STATUS_PAY_FAIL'];
 
-        $amount = $this->checkCalculateAmount();
+        $amount = $this->checkCalculateAmount($this->request->getPost('PROPERTY')['AMOUNT']);
 
         $amount = str_replace('.', '', $amount);
 
-        $arrSber = $this->sberClassObject->registerSberbank($amount);
-        if ($arrSber['status'] === 'success') {
-            $arParameters[$this->arParams['ORDER_ID_PROPERTY_CODE']] = $arrSber['orderId'];
-            $newElement = $this->createNewPayment($arParameters);
-            $result = $arrSber['url'];
+        if ($amount === '') {
+            $result['error'] = 'Заполните обязательно поле - цена';
+        } else {
+            $arrSber = $this->sberClassObject->registerSberbank($amount);
+            if ($arrSber['status'] === 'success') {
+                $arParameters[$this->arParams['ORDER_ID_PROPERTY_CODE']] = $arrSber['orderId'];
+                $newElement = $this->createNewPayment($arParameters);
+                if ($newElement['ID'] === 0) {
+                    $result['error'] = $newElement['error'];
+                } else {
+                    $result['url'] = $arrSber['url'];
+                }
+            } else {
+                $result['error'] = $arrSber['errorMessage'];
+            }
         }
+
 
         return $result;
     }
 
-    /**
-     * Вызывает все нужные методы для работы со статусом оплаты
-     * @return string
-     */
-    public function statusAction(): string
-    {
-        $message = '';
-
-        $status = $this->setStatusPayment($_GET['orderId']);
-
-        if ($status) {
-            $message = $this->arParams['MESSAGE_SUCCESS'];
-        } else {
-            $message = $this->arParams['MESSAGE_FAIL'];
-        }
-
-        return $message;
-    }
 
     /**
      * В зависимости от условий вызывает метод на создание или метод на изменения статуса
      */
-    public function finalAction()
+    private function finalAction()
     {
-        if (!empty($_POST)) {
-            $href = $this->createAction();
-            var_dump($href);
-            if ($href) {
-                LocalRedirect($href);
+        if (!empty($this->request->getPostList()->toArray())) {
+            $createResult = $this->createAction();
+            if ($createResult['url']) {
+                LocalRedirect($createResult['url']);
+            } else {
+                $this->arResult['ERRORS'][] = $createResult['error'];
             }
-        } elseif (isset($_GET['orderId'])) {
-            $result = $this->statusAction();
-            $this->arResult['STATUS_PAY_TEXT'] = $result;
+        } else {
+            $orderID = (string)$this->request->getQuery('orderId');
+            if ($orderID !== '') {
+                $this->arResult['STATUS_PAY_TEXT'] = $this->getMessageStatus((string)$orderID);
+            }
         }
     }
 
-    private function checkExist(): bool
+    /**
+     * Проверяет, создан ли инфоблок и свойства для работы компонента
+     * @return bool
+     */
+    private function isParamsBlockAndPropertyExist(): bool
     {
-        if ($this->mainClassObject->getIblockID($this->arParams['IBLOCK_TYPE'], $this->arParams['IBLOCK_CODE']) === 0) {
+        $this->iblockID = $this->mainClassObject->getIblockID($this->arParams['IBLOCK_TYPE'], $this->arParams['IBLOCK_CODE']);
+        if ($this->iblockID === 0) {
             $this->arResult['ERRORS'][] = 'Создайте указанный в параметрах инфоблок';
         } else {
-            $this->iblockID = $this->mainClassObject->getIblockID($this->arParams['IBLOCK_TYPE'], $this->arParams['IBLOCK_CODE']);
-            $propertyOrderID = $this->checkProperty($this->arParams['ORDER_ID_PROPERTY_CODE'], $iblockID);
-            if ($propertyOrderID === 0) {
-                $this->arResult['ERRORS'][] = 'Создайте указанное в параметре ORDER_ID_PROPERTY_CODE свойство';
 
-            }
-            $propertyStatusID = $this->checkProperty($this->arParams['STATUS_PROPERTY_CODE'], $iblockID);
-            if ($propertyStatusID === 0) {
-                $this->arResult['ERRORS'][] = 'Создайте указанное в параметре STATUS_PROPERTY_CODE свойство';
+            $propertyCodesParamsArray = ['ORDER_ID_PROPERTY_CODE', 'STATUS_PROPERTY_CODE', 'AMOUNT_PROPERTY_CODE'];
 
-            }
-            $propertyAmountID = $this->checkProperty($this->arParams['AMOUNT_PROPERTY_CODE'], $iblockID);
-            if ($propertyAmountID === 0) {
-                $this->arResult['ERRORS'][] = 'Создайте указанное в параметре AMOUNT_PROPERTY_CODE свойство';
-
+            foreach ($propertyCodesParamsArray as $propertyCodeParam) {
+                $propertyID = $this->mainClassObject->getPropertyIDbyCode((string)$this->arParams[$propertyCodeParam], $this->iblockID);
+                if ($propertyID === 0) {
+                    $this->arResult['ERRORS'][] = 'Создайте указанное в параметре ' . $propertyCodeParam . ' свойство';
+                }
             }
         }
         return empty($this->arResult['ERRORS']);
     }
 
-    private function checkCalculateAmount() {
-        $amount = $_POST['PROPERTY']['AMOUNT'];
+    /**
+     * Если установлен параметр собственного расчета, возвращает рассчитанную цену
+     * @param string $amount
+     * @return string
+     */
+    private function checkCalculateAmount(string $amount): string
+    {
         if ($this->arParams['CALCULATE_YOURSELF'] === 'Y') {
             $amount = $this->calculate();
         }
-        return $amount;
+        return (string)$amount;
     }
 
+    /**
+     * Функция для собственного расчета цены
+     * @return float
+     */
     private function calculate(): float
     {
         // .. Опишите свою функцию расчета цены
@@ -201,19 +213,10 @@ class Payment extends CBitrixComponent
         return $amount;
     }
 
-    private function checkProperty($propertyCode, $iblockID): int
-    {
-        $propertyID = 0;
-        $res = CIBlockProperty::GetByID($propertyCode, $iblockID);
-        if($ar_res = $res->GetNext()) {
-            $propertyID = $ar_res['ID'];
-        }
-        return $propertyID;
-    }
-
+    
     public function executeComponent()
     {
-        if ($this->checkExist()) {
+        if ($this->isParamsBlockAndPropertyExist()) {
             $this->finalAction();
         }
 

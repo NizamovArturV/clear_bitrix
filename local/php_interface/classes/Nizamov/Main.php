@@ -2,23 +2,34 @@
 
 namespace Nizamov;
 
+use Bitrix\Main\Loader;
+
 class Main
 {
 
     public function __construct()
     {
-        \CModule::IncludeModule('iblock');
-        \CModule::IncludeModule('highloadblock');
+        $this->includeModules(['iblock', 'highloadblock']);
+    }
+
+    /**
+     * Подключает нужные модули
+     * @param array $moduleNames
+     */
+    public function includeModules(array $moduleNames){
+        foreach ($moduleNames as $moduleName) {
+            Loader::includeModule($moduleName);
+        }
     }
 
     /**
      * Получает ID инфоблока по типу и коду
-     * @param $type
-     * @param $code
+     * @param string $type
+     * @param string $code
      *
      * @return int|mixed
      */
-    public function getIblockID($type, $code)
+    public function getIblockID(string $type, string $code): int
     {
         $result = 0;
 
@@ -33,7 +44,7 @@ class Main
             ), true
         );
         while ($ar_res = $res->Fetch()) {
-            $result = $ar_res['ID'];
+            $result = (int)$ar_res['ID'];
         }
 
         return $result;
@@ -65,6 +76,22 @@ class Main
     }
 
     /**
+     * Получает ID свойства инфоблока по его символьному коду
+     * @param string $propertyCode
+     * @param int $iblockID
+     * @return int
+     */
+    public function getPropertyIDbyCode(string $propertyCode, int $iblockID): int
+    {
+        $propertyID = 0;
+        $res = \CIBlockProperty::GetByID($propertyCode, $iblockID);
+        if($ar_res = $res->GetNext()) {
+            $propertyID = $ar_res['ID'];
+        }
+        return $propertyID;
+    }
+
+    /**
      * Генерация рандомной строки
      * @param int $length
      * @param bool $chars
@@ -91,10 +118,10 @@ class Main
 
     /**
      * Дебаг массивов
-     * @param $data
+     * @param array $data
      * @param false $die
      */
-    public function debug($data, $die = false) {
+    public function debug(array $data, $die = false) {
         echo '<pre>';
         var_dump($data);
         echo '</pre>';
@@ -106,11 +133,11 @@ class Main
 
     /**
      * Возвращает различные вариации слов в зависимости от числа (массив вида [новость, новости, новостей])
-     * @param $n
-     * @param $words
+     * @param int $n
+     * @param array $words
      * @return mixed
      */
-    public function num2word($n, $words)
+    public function num2word(int $n, array $words)
     {
         return ($words[($n = ($n = $n % 100) > 19 ? ($n % 10) : $n) == 1 ? 0 : (($n > 1 && $n <= 4) ? 1 : 2)]);
     }
