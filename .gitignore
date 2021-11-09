@@ -12,3 +12,5 @@ bitrix/tmp
 upload
 .DS_Store
 .idea
+/vendor
+vendor

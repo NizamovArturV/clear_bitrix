@@ -13,7 +13,7 @@ use Nizamov\Main;
 class Payment extends CBitrixComponent
 {
 
-    public $user;
+    private $user;
     public Main $mainClassObject;
     public \Bitrix\SberBankStart\Payment $sberClassObject;
     private int $iblockID;
@@ -213,7 +213,7 @@ class Payment extends CBitrixComponent
         return $amount;
     }
 
-    
+
     public function executeComponent()
     {
         if ($this->isParamsBlockAndPropertyExist()) {

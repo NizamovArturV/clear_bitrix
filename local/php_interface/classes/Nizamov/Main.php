@@ -59,7 +59,7 @@ class Main
      * @param array $sort
      * @return array
      */
-    public function getElements($idBlock, $filter, $select, $countElement = false, $sort = array())
+    public function getElements($idBlock, $filter, $select, $countElement = false, $sort = array()): array
     {
         $result = [];
         if ($idBlock) {
@@ -140,6 +140,45 @@ class Main
     public function num2word(int $n, array $words)
     {
         return ($words[($n = ($n = $n % 100) > 19 ? ($n % 10) : $n) == 1 ? 0 : (($n > 1 && $n <= 4) ? 1 : 2)]);
+    }
+
+    /**
+     * Получает список свойств инфоблока
+     * @param int $iblockID
+     * @param array|string[] $arrSort
+     * @param array $arrFilter
+     * @return array
+     */
+    public function getListProperties(int $iblockID, array $arrSort = ["sort"=>"asc", "name"=>"asc"], array $arrFilter = []): array
+    {
+        $arProps = [];
+        if (empty($arrFilter)) {
+            $arrFilter = ["ACTIVE"=>"Y", "IBLOCK_ID"=>$iblockID];
+        }
+
+        $properties = \CIBlockProperty::GetList($arrSort, $arrFilter);
+        while ($prop_fields = $properties->GetNext())
+        {
+            $arProps[] = $prop_fields;
+        }
+        return $arProps;
+    }
+
+    /**
+     * Возвращает все значения типа список у свойства по коду
+     * @param int $iblockID
+     * @param string $code
+     * @return array
+     */
+    public function getListValuesOfPropertyListByCode(int $iblockID, string $code): array
+    {
+        $values = [];
+        $propertyEnums = \CIBlockPropertyEnum::GetList(["DEF"=>"DESC", "SORT"=>"ASC"], ["IBLOCK_ID"=>$iblockID, "CODE"=>$code]);
+        while($enumFields = $propertyEnums->GetNext())
+        {
+            $values[$enumFields['ID']] = $enumFields['VALUE'];
+        }
+        return $values;
     }
 
 }
